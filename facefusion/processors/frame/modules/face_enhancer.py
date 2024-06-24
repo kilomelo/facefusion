@@ -18,7 +18,7 @@ from facefusion.normalizer import normalize_output_path
 from facefusion.thread_helper import thread_lock, thread_semaphore
 from facefusion.typing import Face, VisionFrame, UpdateProgress, ProcessMode, ModelSet, OptionsWithModel, QueuePayload
 from facefusion.common_helper import create_metavar
-from facefusion.filesystem import is_file, is_image, is_video, resolve_relative_path
+from facefusion.filesystem import is_file, is_image, is_video, is_directory, resolve_relative_path
 from facefusion.download import conditional_download, is_download_done
 from facefusion.vision import read_image, read_static_image, write_image
 from facefusion.processors.frame.typings import FaceEnhancerInputs
@@ -168,7 +168,7 @@ def post_check() -> bool:
 
 
 def pre_process(mode : ProcessMode) -> bool:
-	if mode in [ 'output', 'preview' ] and not is_image(facefusion.globals.target_path) and not is_video(facefusion.globals.target_path):
+	if mode in [ 'output', 'preview' ] and not is_image(facefusion.globals.target_path) and not is_video(facefusion.globals.target_path) and not is_directory(facefusion.globals.target_path):
 		logger.error(wording.get('select_image_or_video_target') + wording.get('exclamation_mark'), NAME)
 		return False
 	if mode == 'output' and not normalize_output_path(facefusion.globals.target_path, facefusion.globals.output_path):

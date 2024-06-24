@@ -24,8 +24,8 @@ from facefusion.normalizer import normalize_output_path, normalize_padding, norm
 from facefusion.memory import limit_system_memory
 from facefusion.statistics import conditional_log_statistics
 from facefusion.download import conditional_download
-from facefusion.filesystem import get_temp_frame_paths, get_temp_file_path, create_temp, move_temp, clear_temp, is_image, is_video, filter_audio_paths, resolve_relative_path, list_directory
-from facefusion.ffmpeg import extract_frames, merge_video, copy_image, finalize_image, restore_audio, replace_audio
+from facefusion.filesystem import get_temp_frame_paths, get_temp_file_path, get_temp_directory_path, create_temp, move_temp, clear_temp, is_image, is_video, is_directory, filter_audio_paths, resolve_relative_path, list_directory
+from facefusion.ffmpeg import extract_frames, merge_video, copy_image,  finalize_image, restore_audio, replace_audio
 from facefusion.vision import read_image, read_static_images, detect_image_resolution, restrict_video_fps, create_image_resolutions, get_video_frame, detect_video_resolution, detect_video_fps, restrict_video_resolution, restrict_image_resolution, create_video_resolutions, pack_resolution, unpack_resolution
 
 onnxruntime.set_default_logger_severity(3)
@@ -267,6 +267,8 @@ def conditional_process() -> None:
 		process_image(start_time)
 	if is_video(facefusion.globals.target_path):
 		process_video(start_time)
+	if is_directory(facefusion.globals.target_path):
+		process_directory(start_time)
 
 
 def conditional_append_reference_faces() -> None:
@@ -429,6 +431,48 @@ def process_video(start_time : float) -> None:
 		logger.error(wording.get('processing_video_failed'), __name__.upper())
 	process_manager.end()
 
+def process_directory(start_time : float) -> None:
+	logger.debug('process directory', __name__.upper())
+	process_manager.start()
+	# 过滤出文件名列表
+	filenames = [entry for entry in os.listdir(facefusion.globals.target_path) if os.path.isfile(os.path.join(facefusion.globals.target_path, entry))]
+
+	# create temp
+	logger.debug(wording.get('creating_temp'), __name__.upper())
+	create_temp(facefusion.globals.target_path)
+	tmp_dir = get_temp_directory_path(facefusion.globals.target_path)
+	logger.debug(f"temp_dir: {tmp_dir}", __name__.upper())
+	tmp_img_paths = []
+	for file in filenames:
+		temp_file_path = os.path.join(tmp_dir, file).replace('\\', '/')
+		target_file_path = os.path.join(facefusion.globals.target_path, file).replace('\\', '/')
+		# copy target file to temp file
+		if not shutil.copy(target_file_path, temp_file_path):
+			logger.error(wording.get('copying_image_failed'), __name__.upper())
+			return
+		tmp_img_paths.append(temp_file_path)
+
+	if tmp_img_paths:
+		for frame_processor_module in get_frame_processors_modules(facefusion.globals.frame_processors):
+			logger.info(wording.get('processing'), frame_processor_module.NAME)
+			frame_processor_module.process_video(facefusion.globals.source_paths, tmp_img_paths)
+			frame_processor_module.post_process()
+		if is_process_stopping():
+			return
+		
+	for result in [entry for entry in os.listdir(tmp_dir)]:
+		logger.debug(f"Copying result: {result} to {os.path.join(facefusion.globals.output_path, result)}", __name__.upper())
+		shutil.copy(os.path.join(tmp_dir, result), os.path.join(facefusion.globals.output_path, result))
+
+	logger.debug(wording.get('clearing_temp'), __name__.upper())
+	clear_temp(facefusion.globals.target_path) 
+
+	seconds = '{:.2f}'.format((time() - start_time) % 60)
+	logger.info(wording.get('processing_image_succeed').format(seconds = seconds), __name__.upper())
+
+	conditional_log_statistics()
+		
+	process_manager.end()
 
 def is_process_stopping() -> bool:
 	if process_manager.is_stopping():
