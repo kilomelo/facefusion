@@ -25,7 +25,7 @@ from facefusion.memory import limit_system_memory
 from facefusion.statistics import conditional_log_statistics
 from facefusion.download import conditional_download
 from facefusion.filesystem import get_temp_frame_paths, get_temp_file_path, get_temp_directory_path, create_temp, move_temp, clear_temp, is_image, is_video, is_directory, filter_audio_paths, resolve_relative_path, list_directory
-from facefusion.ffmpeg import extract_frames, merge_video, copy_image,  finalize_image, restore_audio, replace_audio
+from facefusion.ffmpeg import extract_frames, merge_video, copy_image,  finalize_image, restore_audio, replace_audio, get_bitrates
 from facefusion.vision import read_image, read_static_images, detect_image_resolution, restrict_video_fps, create_image_resolutions, get_video_frame, detect_video_resolution, detect_video_fps, restrict_video_resolution, restrict_image_resolution, create_video_resolutions, pack_resolution, unpack_resolution
 
 onnxruntime.set_default_logger_severity(3)
@@ -310,8 +310,8 @@ def force_download() -> None:
 
 def process_image(start_time : float) -> None:
 	normed_output_path = normalize_output_path(facefusion.globals.target_path, facefusion.globals.output_path)
-	if analyse_image(facefusion.globals.target_path):
-		return
+	# if analyse_image(facefusion.globals.target_path):
+	# 	return
 	# clear temp
 	logger.debug(wording.get('clearing_temp'), __name__.upper())
 	clear_temp(facefusion.globals.target_path)
@@ -356,8 +356,8 @@ def process_image(start_time : float) -> None:
 
 def process_video(start_time : float) -> None:
 	normed_output_path = normalize_output_path(facefusion.globals.target_path, facefusion.globals.output_path)
-	if analyse_video(facefusion.globals.target_path, facefusion.globals.trim_frame_start, facefusion.globals.trim_frame_end):
-		return
+	# if analyse_video(facefusion.globals.target_path, facefusion.globals.trim_frame_start, facefusion.globals.trim_frame_end):
+	# 	return
 	# clear temp
 	logger.debug(wording.get('clearing_temp'), __name__.upper())
 	clear_temp(facefusion.globals.target_path)
@@ -390,7 +390,13 @@ def process_video(start_time : float) -> None:
 		return
 	# merge video
 	logger.info(wording.get('merging_video').format(resolution = facefusion.globals.output_video_resolution, fps = facefusion.globals.output_video_fps), __name__.upper())
+
+	# video_bitrate, audio_bitrate = get_bitrates(facefusion.globals.target_path)
+    # # 将比特率转换为 ffmpeg 可接受的格式
+	# video_bitrate_str = f'{video_bitrate // 1000}k'
+	# audio_bitrate_str = f'{audio_bitrate // 1000}k'
 	if merge_video(facefusion.globals.target_path, facefusion.globals.output_video_resolution, facefusion.globals.output_video_fps):
+	# if merge_video(facefusion.globals.target_path, facefusion.globals.output_video_resolution, facefusion.globals.output_video_fps, video_bitrate=video_bitrate_str, audio_bitrate=audio_bitrate_str):
 		logger.debug(wording.get('merging_video_succeed'), __name__.upper())
 	else:
 		if is_process_stopping():

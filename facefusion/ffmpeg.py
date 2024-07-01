@@ -2,6 +2,7 @@ from typing import List, Optional
 import os
 import subprocess
 import filetype
+import json
 
 import facefusion.globals
 from facefusion import logger, process_manager
@@ -10,9 +11,10 @@ from facefusion.filesystem import get_temp_frames_pattern, get_temp_file_path
 from facefusion.vision import restrict_video_fps
 
 
-def run_ffmpeg(args : List[str]) -> bool:
+def run_ffmpeg(args : List[str], log_detail : bool = False) -> bool:
 	commands = [ 'ffmpeg', '-hide_banner', '-loglevel', 'error' ]
 	commands.extend(args)
+	logger.debug(f"run ffmpeg command: {' '.join(commands)}", __name__.upper())
 	process = subprocess.Popen(commands, stderr = subprocess.PIPE, stdout = subprocess.PIPE)
 
 	while process_manager.is_processing():
@@ -55,30 +57,60 @@ def extract_frames(target_path : str, temp_video_resolution : str, temp_video_fp
 	else:
 		commands.extend([ '-vf', 'fps=' + str(temp_video_fps) ])
 	commands.extend([ '-vsync', '0', temp_frames_pattern ])
-	return run_ffmpeg(commands)
+	return run_ffmpeg(commands, True)
 
 
-def merge_video(target_path : str, output_video_resolution : str, output_video_fps : Fps) -> bool:
-	temp_video_fps = restrict_video_fps(target_path, output_video_fps)
-	temp_file_path = get_temp_file_path(target_path)
-	temp_frames_pattern = get_temp_frames_pattern(target_path, '%04d')
-	commands = [ '-r', str(temp_video_fps), '-i', temp_frames_pattern, '-s', str(output_video_resolution), '-c:v', facefusion.globals.output_video_encoder ]
+# def merge_video(target_path : str, output_video_resolution : str, output_video_fps : Fps) -> bool:
+# 	temp_video_fps = restrict_video_fps(target_path, output_video_fps)
+# 	temp_file_path = get_temp_file_path(target_path)
+# 	temp_frames_pattern = get_temp_frames_pattern(target_path, '%04d')
+# 	commands = [ '-r', str(temp_video_fps), '-i', temp_frames_pattern, '-s', str(output_video_resolution), '-c:v', facefusion.globals.output_video_encoder ]
 
-	if facefusion.globals.output_video_encoder in [ 'libx264', 'libx265' ]:
-		output_video_compression = round(51 - (facefusion.globals.output_video_quality * 0.51))
-		commands.extend([ '-crf', str(output_video_compression), '-preset', facefusion.globals.output_video_preset ])
-	if facefusion.globals.output_video_encoder in [ 'libvpx-vp9' ]:
-		output_video_compression = round(63 - (facefusion.globals.output_video_quality * 0.63))
-		commands.extend([ '-crf', str(output_video_compression) ])
-	if facefusion.globals.output_video_encoder in [ 'h264_nvenc', 'hevc_nvenc' ]:
-		output_video_compression = round(51 - (facefusion.globals.output_video_quality * 0.51))
-		commands.extend([ '-cq', str(output_video_compression), '-preset', map_nvenc_preset(facefusion.globals.output_video_preset) ])
-	if facefusion.globals.output_video_encoder in [ 'h264_amf', 'hevc_amf' ]:
-		output_video_compression = round(51 - (facefusion.globals.output_video_quality * 0.51))
-		commands.extend([ '-qp_i', str(output_video_compression), '-qp_p', str(output_video_compression), '-quality', map_amf_preset(facefusion.globals.output_video_preset) ])
-	commands.extend([ '-vf', 'framerate=fps=' + str(output_video_fps), '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-y', temp_file_path ])
-	return run_ffmpeg(commands)
+# 	if facefusion.globals.output_video_encoder in [ 'libx264', 'libx265' ]:
+# 		output_video_compression = round(51 - (facefusion.globals.output_video_quality * 0.51))
+# 		commands.extend([ '-crf', str(output_video_compression), '-preset', facefusion.globals.output_video_preset ])
+# 	if facefusion.globals.output_video_encoder in [ 'libvpx-vp9' ]:
+# 		output_video_compression = round(63 - (facefusion.globals.output_video_quality * 0.63))
+# 		commands.extend([ '-crf', str(output_video_compression) ])
+# 	if facefusion.globals.output_video_encoder in [ 'h264_nvenc', 'hevc_nvenc' ]:
+# 		output_video_compression = round(51 - (facefusion.globals.output_video_quality * 0.51))
+# 		commands.extend([ '-cq', str(output_video_compression), '-preset', map_nvenc_preset(facefusion.globals.output_video_preset) ])
+# 	if facefusion.globals.output_video_encoder in [ 'h264_amf', 'hevc_amf' ]:
+# 		output_video_compression = round(51 - (facefusion.globals.output_video_quality * 0.51))
+# 		commands.extend([ '-qp_i', str(output_video_compression), '-qp_p', str(output_video_compression), '-quality', map_amf_preset(facefusion.globals.output_video_preset) ])
+# 	commands.extend([ '-vf', 'framerate=fps=' + str(output_video_fps), '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-y', temp_file_path ])
+# 	return run_ffmpeg(commands)
 
+def merge_video(target_path: str, output_video_resolution: str, output_video_fps: Fps, video_bitrate: str = None, audio_bitrate: str = None) -> bool:
+    temp_video_fps = restrict_video_fps(target_path, output_video_fps)
+    temp_file_path = get_temp_file_path(target_path)
+    temp_frames_pattern = get_temp_frames_pattern(target_path, '%04d')
+    commands = ['-r', str(temp_video_fps), '-i', temp_frames_pattern, '-s', str(output_video_resolution), '-c:v', facefusion.globals.output_video_encoder]
+
+    if video_bitrate is not None:
+        # 如果指定了视频码率，则使用码率参数
+        commands.extend(['-b:v', video_bitrate])
+    else:
+        # 如果没有指定视频码率，则使用恒定质量因子参数
+        if facefusion.globals.output_video_encoder in ['libx264', 'libx265']:
+            output_video_compression = round(51 - (facefusion.globals.output_video_quality * 0.51))
+            commands.extend(['-crf', str(output_video_compression), '-preset', facefusion.globals.output_video_preset])
+        elif facefusion.globals.output_video_encoder in ['libvpx-vp9']:
+            output_video_compression = round(63 - (facefusion.globals.output_video_quality * 0.63))
+            commands.extend(['-crf', str(output_video_compression)])
+        elif facefusion.globals.output_video_encoder in ['h264_nvenc', 'hevc_nvenc']:
+            output_video_compression = round(51 - (facefusion.globals.output_video_quality * 0.51))
+            commands.extend(['-cq', str(output_video_compression), '-preset', map_nvenc_preset(facefusion.globals.output_video_preset)])
+        elif facefusion.globals.output_video_encoder in ['h264_amf', 'hevc_amf']:
+            output_video_compression = round(51 - (facefusion.globals.output_video_quality * 0.51))
+            commands.extend(['-qp_i', str(output_video_compression), '-qp_p', str(output_video_compression), '-quality', map_amf_preset(facefusion.globals.output_video_preset)])
+    
+    # 添加音频比特率参数，如果有提供
+    if audio_bitrate is not None:
+        commands.extend(['-b:a', audio_bitrate])
+    
+    commands.extend(['-vf', 'framerate=fps=' + str(output_video_fps), '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-y', temp_file_path])
+    return run_ffmpeg(commands)
 
 def copy_image(target_path : str, temp_image_resolution : str) -> bool:
 	temp_file_path = get_temp_file_path(target_path)
@@ -144,3 +176,20 @@ def map_amf_preset(output_video_preset : OutputVideoPreset) -> Optional[str]:
 	if output_video_preset in [ 'slow', 'slower', 'veryslow' ]:
 		return 'quality'
 	return None
+
+def get_bitrates(file_path):
+    result = subprocess.run(
+        ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=bit_rate', '-of', 'json', file_path],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+    video_bitrate = json.loads(result.stdout)['streams'][0]['bit_rate']
+    
+    result = subprocess.run(
+        ['ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=bit_rate', '-of', 'json', file_path],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+    audio_bitrate = json.loads(result.stdout)['streams'][0]['bit_rate']
+    
+    return int(video_bitrate), int(audio_bitrate)
